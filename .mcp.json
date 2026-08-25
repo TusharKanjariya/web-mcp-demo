@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "webmcp-board": {
+      "command": "node",
+      "args": ["C:\\projects\\web-mcp-demo\\mcp-bridge.mjs"],
+      "env": {
+        "PAGE_URL": "https://tusharkanjariya.github.io/web-mcp-demo/"
+      }
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "web-mcp-demo",
+  "version": "1.0.0",
+  "type": "module",
+  "bin": { "web-mcp-demo": "mcp-bridge.mjs" }
+}

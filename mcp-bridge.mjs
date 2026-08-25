@@ -77,8 +77,12 @@ async function safeHandle(req) {
 // so every log line must go to stderr or the client sees corrupt frames.
 function runStdio() {
   let buf = '';
-  process.stdin.setEncoding('utf8');
-  process.stdin.on('data', async (chunk) => {
+  // Chained so only one drain runs at a time. Without this, a 'data' event that
+  // arrives while an earlier one is awaiting a tool call reads the same buffer
+  // and responses get dropped.
+  let queue = Promise.resolve();
+
+  async function drain(chunk) {
     buf += chunk;
     let nl;
     while ((nl = buf.indexOf('\n')) !== -1) {
@@ -91,7 +95,10 @@ function runStdio() {
       const res = await safeHandle(req);
       if (res) process.stdout.write(JSON.stringify(res) + '\n');
     }
-  });
+  }
+
+  process.stdin.setEncoding('utf8');
+  process.stdin.on('data', (chunk) => { queue = queue.then(() => drain(chunk)); });
   process.stderr.write('webmcp-bridge: stdio ready\n');
 }
 

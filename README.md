@@ -82,41 +82,60 @@ Neither app speaks WebMCP — they speak **MCP**. `mcp-bridge.mjs` is the adapte
 `tools/list` → `getTools()`, `tools/call` → `executeTool()`. Same JSON-RPC handler,
 two transports. Chrome must already be running with the flag and the debug port.
 
-### Claude Desktop — stdio
+The bridge starts its own Chrome if the debug port isn't answering, and opens
+`PAGE_URL` if that tab isn't already there — so an MCP client can launch it cold
+with nothing else running.
 
-Add to `%APPDATA%\Claude\claude_desktop_config.json`, then fully quit and reopen
-Claude Desktop (it reads the file only at startup):
+### Claude Code — `.mcp.json` (already wired up)
 
 ```json
 {
   "mcpServers": {
     "webmcp-board": {
-      "command": "C:\\Program Files\\nodejs\\node.exe",
-      "args": ["C:\\projects\\web-mcp-demo\\mcp-bridge.mjs"]
+      "command": "node",
+      "args": ["C:\\projects\\web-mcp-demo\\mcp-bridge.mjs"],
+      "env": { "PAGE_URL": "https://tusharkanjariya.github.io/web-mcp-demo/" }
     }
   }
 }
 ```
 
-Use the **full path** to `node.exe` — Claude Desktop launches servers with a
-minimal PATH, so a bare `node` usually fails. stdout is the protocol channel, so
-the bridge logs only to stderr.
+### Codex CLI — `~/.codex/config.toml` (already wired up)
 
-### ChatGPT — HTTP, and only through a tunnel
+Single-quoted TOML literal strings take Windows paths verbatim; double-quoted
+strings would need `\\` and fail to parse otherwise.
+
+```toml
+[mcp_servers.webmcp-board]
+command = "node"
+args = ['C:\projects\web-mcp-demo\mcp-bridge.mjs']
+env = { PAGE_URL = "https://tusharkanjariya.github.io/web-mcp-demo/" }
+```
+
+Confirm with `codex mcp list`. Remove the block to undo.
+
+### Claude Desktop — same shape, once installed
+
+`%APPDATA%\Claude\claude_desktop_config.json`, using the same `mcpServers` JSON as
+Claude Code. Two differences: use the **full path** to `node.exe`
+(`C:\Program Files\nodejs\node.exe`) because Claude Desktop launches servers with a
+minimal PATH, and fully quit and reopen the app — it reads the config only at
+startup. stdout is the protocol channel, so the bridge logs only to stderr.
+
+### ChatGPT (web) — only through a tunnel
 
 ChatGPT's connectors cannot reach `localhost`; a connector must be a public HTTPS
-endpoint speaking SSE or Streamable HTTP, added under Developer mode (Pro/Plus/
-Business/Enterprise/Edu). So:
+endpoint speaking SSE or Streamable HTTP, added under Developer mode. So:
 
 ```
 node mcp-bridge.mjs --http 8787
 ngrok http 8787          # then register https://<id>.ngrok.app/mcp as the connector
 ```
 
-**Understand what that does before you run it.** The tunnel publishes a
-no-auth endpoint that executes tools inside your logged-in browser tab, to anyone
-who guesses the URL. Fine for a few minutes of local experimenting; not something
-to leave running. Claude Desktop's stdio path has no such exposure — prefer it.
+**Understand what that does before you run it.** The tunnel publishes a no-auth
+endpoint that executes tools inside your logged-in browser tab, to anyone who
+guesses the URL. Fine for a few minutes of experimenting; not something to leave
+running. The local stdio clients above have no such exposure — prefer them.
 
 ## Publishing to GitHub Pages
 
@@ -131,13 +150,22 @@ context WebMCP requires. But three different things are called "working":
 
 To make it work for visitors without the flag, register an origin trial for
 `https://<username>.github.io` (that one origin covers all your project pages) and
-add the token to `index.html`:
+put the token in `<head>`, before any script:
 
 ```html
 <meta http-equiv="origin-trial" content="TOKEN_GOES_HERE">
 ```
 
-Tokens last about six weeks; extending one requires submitting feedback.
+**Register it as a first-party token — leave "Third-party matching" unchecked.**
+Chrome rejects third-party tokens in a meta tag, inline script, or HTTP header;
+those only work injected from an external JS file on someone else's site. Decode
+any token with `atob()` and check for `"isThirdParty": true` if it isn't taking.
+
+Verified live: a clean Chrome profile with no flags, on
+`https://tusharkanjariya.github.io/web-mcp-demo/`, reports
+`modelContext: "object"` and all 6 tools. Without the token, the same profile
+reported `undefined`. This trial runs to Chrome 156 / Nov 17 2026; renewing
+requires submitting feedback.
 
 To point the local tooling at the published page instead of Live Server:
 

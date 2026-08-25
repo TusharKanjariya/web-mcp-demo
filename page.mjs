@@ -3,17 +3,62 @@
 // (MCP server). Zero dependencies — Node 22+ has a global WebSocket.
 
 const PORT = process.env.CDP_PORT ?? 9222;
-const MATCH = process.env.PAGE_MATCH ?? '5500';
+const URL_ = process.env.PAGE_URL ?? 'https://tusharkanjariya.github.io/web-mcp-demo/';
+const MATCH = process.env.PAGE_MATCH ?? new URL(URL_).host;
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const targets = () => fetch(`http://127.0.0.1:${PORT}/json/list`).then((r) => r.json());
+
+// MCP clients launch this as a child process with no browser around, so start
+// one if the debug port is dead, and open the page if it isn't already up.
+// The flag is only needed for origins without an origin-trial token.
+async function launchChrome() {
+  const { existsSync } = await import('node:fs');
+  const { spawn } = await import('node:child_process');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+
+  const candidates = process.platform === 'darwin'
+    ? ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
+    : process.platform === 'win32'
+      ? [`${process.env.ProgramFiles}\\Google\\Chrome\\Application\\chrome.exe`,
+         `${process.env['ProgramFiles(x86)']}\\Google\\Chrome\\Application\\chrome.exe`,
+         `${process.env.LOCALAPPDATA}\\Google\\Chrome\\Application\\chrome.exe`]
+      : ['/usr/bin/google-chrome', '/usr/bin/chromium'];
+
+  const exe = candidates.find((p) => p && existsSync(p));
+  if (!exe) throw new Error(`Chrome not found. Start it yourself with --remote-debugging-port=${PORT}.`);
+
+  spawn(exe, [
+    `--remote-debugging-port=${PORT}`,
+    '--enable-features=WebMCP',
+    `--user-data-dir=${join(tmpdir(), 'webmcp-chrome')}`,
+    '--no-first-run', '--no-default-browser-check',
+    URL_,
+  ], { detached: true, stdio: 'ignore' }).unref();
+
+  for (let i = 0; i < 30; i++) {          // up to ~15s for the port to answer
+    await sleep(500);
+    try { return await targets(); } catch {}
+  }
+  throw new Error(`Chrome did not open a debug port on ${PORT}.`);
+}
 
 async function debuggerUrl() {
   let list;
-  try {
-    list = await fetch(`http://127.0.0.1:${PORT}/json/list`).then((r) => r.json());
-  } catch {
-    throw new Error(`No Chrome on port ${PORT}. Launch it with --remote-debugging-port=${PORT} --enable-features=WebMCP.`);
+  try { list = await targets(); } catch { list = await launchChrome(); }
+
+  let page = list.find((t) => t.type === 'page' && t.url.includes(MATCH));
+  if (!page) {
+    // Browser is up but our page isn't open — open it.
+    await fetch(`http://127.0.0.1:${PORT}/json/new?${encodeURIComponent(URL_)}`, { method: 'PUT' });
+    for (let i = 0; i < 20 && !page; i++) {
+      await sleep(500);
+      page = (await targets()).find((t) => t.type === 'page' && t.url.includes(MATCH));
+    }
+    if (!page) throw new Error(`Could not open ${URL_}.`);
+    await sleep(1000);                    // let the page's tools register
   }
-  const page = list.find((t) => t.type === 'page' && t.url.includes(MATCH));
-  if (!page) throw new Error(`No open page whose URL contains "${MATCH}".`);
   return page.webSocketDebuggerUrl;
 }
 
@@ -43,7 +88,19 @@ async function evalInPage(expression) {
 
 const guard = `if (!document.modelContext) return JSON.stringify({ fatal: 'document.modelContext is undefined — relaunch Chrome with --enable-features=WebMCP' });`;
 
+// MCP clients call tools/list once at startup and cache the answer, so an empty
+// list from a page that is still booting would look like an empty server
+// forever. Give registration a moment to happen before believing a zero.
 export async function listTools() {
+  for (let i = 0; i < 10; i++) {
+    const out = await readTools();
+    if (out.fatal || out.tools.length) return out;
+    await sleep(500);
+  }
+  return readTools();
+}
+
+async function readTools() {
   const out = await evalInPage(`(async () => { ${guard}
     const tools = await document.modelContext.getTools();
     return JSON.stringify({ tools: tools.map(t => ({
