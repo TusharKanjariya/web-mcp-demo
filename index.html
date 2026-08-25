@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WebMCP Demo — Task Board</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <h1>WebMCP Task Board</h1>
+  <p class="sub">A plain HTML/CSS/JS page that exposes itself to an AI agent as callable tools.</p>
+  <div id="support" class="banner" hidden></div>
+</header>
+
+<main>
+  <!-- ================= THE APP (the part a human uses) ================= -->
+  <section class="card">
+    <h2>Board</h2>
+
+    <!-- DECLARATIVE API: these 4 attributes turn this form into a WebMCP tool.
+         No JS required to register it. The browser builds the inputSchema
+         from the field names, `required`, and the <select> options. -->
+    <form id="add-form"
+          toolname="add-task"
+          tooldescription="Add a new task to the user's task board."
+          toolautosubmit>
+      <div class="row">
+        <label>
+          Task
+          <input name="title" required maxlength="80" placeholder="Write the report"
+                 toolparamdescription="Short description of the task to add.">
+        </label>
+        <label>
+          Priority
+          <select name="priority"
+                  toolparamdescription="How urgent the task is.">
+            <option value="low">low</option>
+            <option value="normal" selected>normal</option>
+            <option value="high">high</option>
+          </select>
+        </label>
+        <button type="submit">Add</button>
+      </div>
+    </form>
+
+    <div class="filters" role="group" aria-label="Filter tasks">
+      <button data-filter="all" class="on">All</button>
+      <button data-filter="open">Open</button>
+      <button data-filter="done">Done</button>
+    </div>
+
+    <ul id="tasks" class="tasks"></ul>
+    <p id="count" class="count"></p>
+  </section>
+
+  <!-- ============ THE AGENT SIDE (normally the browser does this) ============
+       Same API, consumer half: getTools() + executeTool(). Having it in-page
+       means you can see both ends without wiring up a real agent. -->
+  <aside class="card">
+    <h2>Pretend Agent</h2>
+    <p class="sub">Uses <code>document.modelContext.getTools()</code> and <code>executeTool()</code> — exactly what a real agent calls.</p>
+
+    <label>
+      Tool
+      <select id="tool-select"></select>
+    </label>
+
+    <pre id="tool-info" class="schema"></pre>
+
+    <label>
+      Arguments (JSON)
+      <textarea id="tool-args" rows="5" spellcheck="false"></textarea>
+    </label>
+
+    <div class="row">
+      <button id="run">Run tool</button>
+      <button id="cancel" class="ghost" disabled>Cancel</button>
+    </div>
+
+    <pre id="output" class="out"></pre>
+
+    <h3>Event log</h3>
+    <ol id="log" class="log"></ol>
+  </aside>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>
